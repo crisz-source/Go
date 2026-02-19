@@ -1,10 +1,9 @@
 package main
 
-import "fmt"
+import (
+    "ck/cmd"
+)
 
 func main() {
-    nome := "Cristhian"
-    idade := 25
-    
-    fmt.Printf("Nome: %s, Idade: %d\n", nome, idade)
+    cmd.Execute()
 }
