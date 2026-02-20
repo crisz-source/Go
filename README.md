@@ -34,6 +34,8 @@ O **ck** foi criado para:
 - `ck workers -n <namespace>` - Mostra status dos workers do Supervisor
 - `ck scan <imagem>` - Scan de vulnerabilidades em imagens Docker
 - `ck scan <imagem> -s CRITICAL` - Filtra por severidade
+- `ck ingress` - Lista ingresses com URLs
+- `ck nodes` - Status dos nodes com CPU/memoria
 
 Para ver todos os comandos e opções:
 ```bash
