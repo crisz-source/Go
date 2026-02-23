@@ -12,145 +12,155 @@ O `kubectl` é poderoso, mas verboso. Para tarefas simples do dia-a-dia, precisa
 
 O **ck** foi criado para:
 
-- **Simplificar comandos frequentes** - menos digitação, mais produtividade
-- **Formatar outputs** - informações organizadas e fáceis de ler
-- **Filtrar o que importa** - mostrar apenas pods com problema, não todos
-- **Unificar ferramentas** - kubectl + trivy + supervisorctl em um só lugar
+* **Simplificar comandos frequentes** - menos digitação, mais produtividade
+* **Formatar outputs** - informações organizadas e fáceis de ler
+* **Filtrar o que importa** - mostrar apenas pods com problema, não todos
+* **Unificar ferramentas** - kubectl + trivy + supervisorctl em um só lugar
+* **Monitorar em tempo real** - detectar problemas e notificar automaticamente
+* **Configuração flexível** - arquivo YAML, variáveis de ambiente e flags
+
+---
+
+## Configuração
+
+O ck usa [Viper](https://github.com/spf13/viper) para gerenciamento de configuração com hierarquia de prioridade:
+
+```
+Flag (--namespace) > Variável de ambiente (CK_NAMESPACE) > Arquivo (~/.ck.yaml) > Default
+```
+
+### Arquivo de configuração (~/.ck.yaml)
+
+```yaml
+# Namespace padrão para todos os comandos
+namespace: php-worker
+
+# Número de linhas padrão para logs
+tail: "100"
+
+# Configuração do scan
+scan:
+  severity: "CRITICAL,HIGH"
+
+# Configuração do watch
+watch:
+  restart_threshold: 3       # envia alerta quando restarts >= 3
+
+# Notificação por email (Azure Communication Services)
+notify:
+  email:
+    connection_string: "endpoint=https://...;accesskey=..."
+    from: "DoNotReply@seudominio.com"
+    to: "seu-email@destino.com"
+```
+
+### Variáveis de ambiente
+
+Todas as configurações podem ser sobrescritas com variáveis prefixadas com `CK_`:
+
+```bash
+CK_NAMESPACE=kube-system ck pods
+CK_SCAN_SEVERITY=CRITICAL ck scan nginx:latest
+```
+
+### Comandos de configuração
+
+```bash
+ck config          # Mostra configuração ativa (arquivo + valores)
+ck config path     # Mostra o caminho do arquivo de configuração
+```
 
 ---
 
 ## Comandos
 
-- `ck version` - Mostra a versão do ck
-- `ck pods` - Lista apenas pods com problema (CrashLoopBackOff, ImagePullBackOff, restarts > 5)
-- `ck pods -n <namespace>` - Filtra por namespace
-- `ck logs <pod> -n <namespace>` - Mostra logs de um pod
-- `ck logs <pod> -n <namespace> -t 100` - Mostra últimas 100 linhas
-- `ck describe <pod> -n <namespace>` - Mostra detalhes resumidos de um pod com eventos
-- `ck exec <pod> -n <namespace> -- <cmd>` - Executa comando dentro do pod
-- `ck top` - Lista pods ordenados por consumo de CPU
-- `ck top -m` - Lista pods ordenados por consumo de memória
-- `ck top -n <namespace>` - Filtra por namespace
-- `ck workers -n <namespace>` - Mostra status dos workers do Supervisor
-- `ck scan <imagem>` - Scan de vulnerabilidades em imagens Docker
-- `ck scan <imagem> -s CRITICAL` - Filtra por severidade
-- `ck ingress` - Lista ingresses com URLs
-- `ck nodes` - Status dos nodes com CPU/memoria
+| Comando | Descrição |
+|---------|-----------|
+| `ck version` | Mostra a versão do ck |
+| `ck config` | Mostra configuração ativa |
+| `ck pods` | Lista apenas pods com problema |
+| `ck logs <pod>` | Mostra logs de um pod |
+| `ck describe <pod>` | Detalhes resumidos de um pod com eventos |
+| `ck exec <pod> -- <cmd>` | Executa comando dentro do pod |
+| `ck top` | Lista pods por consumo de recursos |
+| `ck workers` | Status dos workers do Supervisor |
+| `ck scan <imagem>` | Scan de vulnerabilidades com Trivy |
+| `ck ingress` | Lista ingresses com URLs |
+| `ck nodes` | Status dos nodes com CPU/memória |
+| `ck watch` | **Monitora pods em tempo real com alertas** |
 
-Para ver todos os comandos e opções:
+### Flags globais
+
 ```bash
-ck --help
-ck <comando> --help
+-n, --namespace <ns>    # Filtra por namespace (ou CK_NAMESPACE)
 ```
 
 ---
 
-## Instalação
+## ck watch — Monitoramento em tempo real
 
-### Linux
+O `ck watch` monitora pods usando Kubernetes Informers (mesma tecnologia que Operators usam) e envia alertas por email quando detecta problemas.
+
+### O que detecta
+
+* **Restarts** - container reiniciou
+* **CrashLoopBackOff** - container reiniciando em loop
+* **OOMKilled** - container morto por falta de memória
+* **Pod deletado** - pod foi removido do cluster
+
+### Uso
+
 ```bash
-# Baixa o binário
-curl -L https://github.com/crisz-source/ck/releases/latest/download/ck-linux-amd64 -o ck
+# Monitora namespace do config (~/.ck.yaml)
+ck watch
 
-# Dá permissão de execução
-chmod +x ck
+# Monitora namespace específico
+ck watch -n php-worker
 
-# Move para o PATH
-sudo mv ck /usr/local/bin/
-
-# Verifica instalação
-ck version
+# Monitora TODOS os namespaces
+ck watch -n ""
 ```
 
-### macOS
-```bash
-# Baixa o binário
-curl -L https://github.com/crisz-source/ck/releases/latest/download/ck-darwin-amd64 -o ck
+### Como funciona
 
-# Dá permissão de execução
-chmod +x ck
+O `ck watch` usa **client-go Informers** para manter uma conexão permanente com a API do Kubernetes. Diferente de polling (ficar perguntando "mudou algo?"), o Informer recebe eventos em tempo real conforme acontecem no cluster.
 
-# Move para o PATH
-sudo mv ck /usr/local/bin/
-
-# Verifica instalação
-ck version
+```
+Cluster K8s → Evento (pod reiniciou) → Informer detecta → Alerta terminal + Email
 ```
 
-### Windows
-```powershell
-# Baixa o binário (PowerShell)
-Invoke-WebRequest -Uri "https://github.com/crisz-source/ck/releases/latest/download/ck-windows-amd64.exe" -OutFile "ck.exe"
+Os alertas são enviados por email via **Azure Communication Services** quando o número de restarts atinge o threshold configurado (padrão: 3).
 
-# Move para uma pasta no PATH (exemplo: C:\Windows)
-Move-Item ck.exe C:\Windows\
+### Exemplo de alerta
 
-# Verifica instalação
-ck version
 ```
+🔄 CK ALERT
 
-### Compilar do código fonte
-
-Requer Go 1.18+
-```bash
-git clone https://github.com/crisz-source/ck.git
-cd ck
-go build -o ck .
-sudo mv ck /usr/local/bin/
+Evento:     RESTART
+Pod:        php-worker-abc-123
+Namespace:  php-worker
+Restarts:   3
+Motivo:     OOMKilled
+Hora:       23/02/2026 16:03:54
+─────────────────────────────────
+✅ Email enviado!
 ```
 
 ---
 
-## Exemplos de uso
+## ck pods — Detecção via client-go
 
-### Listar pods com problema
+O comando `ck pods` usa **client-go** para se comunicar diretamente com a API do Kubernetes (sem depender do binário kubectl). Isso torna a detecção mais rápida e permite acesso a dados estruturados dos pods.
+
 ```bash
-# Todos os namespaces
+# Pods com problema no namespace do config
 ck pods
 
-# Namespace específico
-ck pods -n php-worker
-```
+# Pods com problema em namespace específico
+ck pods -n kube-system
 
-### Ver logs
-```bash
-# Logs completos
-ck logs meu-pod -n default
-
-# Últimas 100 linhas
-ck logs meu-pod -n default -t 100
-```
-
-### Entrar no pod
-```bash
-# Shell interativo
-ck exec meu-pod -n default -- bash
-
-# Comando específico
-ck exec meu-pod -n default -- ls -la
-```
-
-### Ver consumo de recursos
-```bash
-# Por CPU (padrão)
-ck top -n php-worker
-
-# Por memória
-ck top -n php-worker -m
-```
-
-### Scan de vulnerabilidades
-
-Requer [Trivy](https://aquasecurity.github.io/trivy) instalado.
-```bash
-# Scan básico (HIGH e CRITICAL)
-ck scan nginx:latest
-
-# Apenas CRITICAL
-ck scan nginx:latest -s CRITICAL
-
-# Todas as severidades
-ck scan minha-imagem:v1.0 -s CRITICAL,HIGH,MEDIUM,LOW
+# Pods com problema em todos os namespaces
+ck pods -n ""
 ```
 
 ---
@@ -163,15 +173,16 @@ O comando `workers` foi criado para um caso de uso específico do meu ambiente d
 
 No sistema SUPP (Sistema Único de Processo e Protocolo), utilizamos pods PHP que rodam múltiplos workers gerenciados pelo **Supervisor** (um gerenciador de processos). Cada pod pode ter 50+ workers rodando simultaneamente, processando filas como:
 
-- Indexação de documentos
-- Envio de processos
-- Sincronização com tribunais
-- Processamento de relatórios
-- E muitos outros...
+* Indexação de documentos
+* Envio de processos
+* Sincronização com tribunais
+* Processamento de relatórios
+* E muitos outros...
 
 ### O problema
 
 Verificar o status desses workers manualmente era trabalhoso:
+
 ```bash
 # Antes: precisava entrar em cada pod e rodar supervisorctl
 kubectl exec pod-xyz -n php-worker -- supervisorctl status
@@ -179,12 +190,14 @@ kubectl exec pod-xyz -n php-worker -- supervisorctl status
 ```
 
 ### A solução
+
 ```bash
 # Agora: um comando mostra tudo
 ck workers -n php-worker
 ```
 
 Output:
+
 ```
 === WORKERS STATUS - NAMESPACE: php-worker ===
 
@@ -205,6 +218,7 @@ ATENCAO: Workers em FATAL precisam de investigacao!
 ```
 
 ### Uso
+
 ```bash
 # Todos os pods do namespace
 ck workers -n php-worker
@@ -217,7 +231,25 @@ ck workers php-worker-light-xyz -n php-worker
 
 ---
 
+## Scan de vulnerabilidades
+
+Requer [Trivy](https://aquasecurity.github.io/trivy) instalado.
+
+```bash
+# Scan básico (usa severidade do config)
+ck scan nginx:latest
+
+# Apenas CRITICAL
+ck scan nginx:latest -s CRITICAL
+
+# Todas as severidades
+ck scan minha-imagem:v1.0 -s CRITICAL,HIGH,MEDIUM,LOW
+```
+
+---
+
 ## Estrutura do projeto
+
 ```
 ck/
 ├── main.go                 # Entrada do programa
@@ -225,59 +257,93 @@ ck/
 ├── go.sum                  # Lock das dependências
 ├── build.sh                # Script para gerar binários
 ├── README.md               # Este arquivo
+├── CHANGELOG.md            # Histórico de mudanças
+├── .gitignore              # Arquivos ignorados pelo Git
 ├── cmd/                    # Comandos da CLI
-│   ├── root.go             # Comando raiz e variáveis globais
+│   ├── root.go             # Comando raiz + Viper config
 │   ├── version.go          # ck version
-│   ├── pods.go             # ck pods
+│   ├── config.go           # ck config
+│   ├── pods.go             # ck pods (client-go)
 │   ├── logs.go             # ck logs
 │   ├── describe.go         # ck describe
 │   ├── exec.go             # ck exec
 │   ├── top.go              # ck top
 │   ├── workers.go          # ck workers
-│   └── scan.go             # ck scan
+│   ├── scan.go             # ck scan
+│   └── watch.go            # ck watch (Informer + email)
+├── k8s/                    # Integração com Kubernetes
+│   ├── client.go           # Conexão client-go (kubeconfig/in-cluster)
+│   └── watcher.go          # Informer + EventHandlers
+├── notify/                 # Notificações
+│   └── email.go            # Email via Azure Communication Services
 ├── types/                  # Structs compartilhadas
 │   └── types.go            # Pod, Event, PodMetrics, etc
-├── dist/                   # Binários compilados
-│   ├── ck-linux-amd64      # Linux 64-bit
-│   ├── ck-linux-arm64      # Linux ARM
-│   ├── ck-darwin-amd64     # macOS Intel
-│   └── ck-windows-amd64.exe # Windows
-└── pratica/                # Exercícios de estudo (ver abaixo)
+└── pratica/                # Exercícios de estudo
     ├── ponteiros.go
     ├── maps.go
     ├── loops.go
     ├── errors.go
-    ├── bug1.go
-    ├── bug2.go
-    ├── bug3.go
-    └── bug4.go
+    └── bug1.go a bug4.go
 ```
 
 ---
 
-## Sobre a pasta `pratica/`
+## Tecnologias
 
-A pasta `pratica/` contém exercícios de estudo de Go criados durante o desenvolvimento do ck. São desafios de debug onde a IA gerava código com bugs propositais para eu encontrar e corrigir.
+| Tecnologia | Uso |
+|------------|-----|
+| [Go](https://go.dev/) | Linguagem principal |
+| [Cobra](https://github.com/spf13/cobra) | Framework CLI (comandos, flags, help) |
+| [Viper](https://github.com/spf13/viper) | Configuração (arquivo, env, flags) |
+| [client-go](https://github.com/kubernetes/client-go) | Comunicação direta com API K8s |
+| [Azure Communication Services](https://azure.microsoft.com/en-us/products/communication-services) | Envio de email (alertas) |
+| [Trivy](https://aquasecurity.github.io/trivy) | Scan de vulnerabilidades |
 
-Exercícios incluem:
+---
 
-- **ponteiros.go** - Entender ponteiros e referências em Go
-- **maps.go** - Trabalhar com maps e verificar existência de chaves
-- **loops.go** - Loops com range e manipulação de slices
-- **errors.go** - Tratamento de erros em Go
-- **bug1.go a bug4.go** - Desafios de debug com níveis de dificuldade crescente
+## Instalação
 
-Esses exercícios ajudaram a fixar conceitos fundamentais de Go como ponteiros, slices, maps, structs e tratamento de erros.
+### Compilar do código fonte
+
+Requer Go 1.21+
+
+```bash
+git clone https://github.com/crisz-source/ck.git
+cd ck
+go mod tidy
+go build -o ck .
+sudo mv ck /usr/local/bin/
+```
+
+### Configuração inicial
+
+```bash
+# Cria o arquivo de configuração
+cat > ~/.ck.yaml << 'EOF'
+namespace: default
+tail: "100"
+scan:
+  severity: "CRITICAL,HIGH"
+watch:
+  restart_threshold: 3
+notify:
+  email:
+    connection_string: ""
+    from: ""
+    to: ""
+EOF
+```
 
 ---
 
 ## Requisitos
 
-- `kubectl` configurado e com acesso ao cluster
-- `trivy` instalado (apenas para o comando `ck scan`)
+* Go 1.21+ (para compilar)
+* `kubectl` configurado e com acesso ao cluster
+* `trivy` instalado (apenas para `ck scan`)
+* Azure Communication Services (apenas para alertas do `ck watch`)
 
 ---
-
 
 ## Autor
 
