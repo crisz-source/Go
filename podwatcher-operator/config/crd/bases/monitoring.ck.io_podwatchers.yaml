@@ -1,0 +1,115 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: podwatchers.monitoring.ck.io
+spec:
+  group: monitoring.ck.io
+  names:
+    kind: PodWatcher
+    listKind: PodWatcherList
+    plural: podwatchers
+    singular: podwatcher
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.targetNamespace
+      name: Target NS
+      type: string
+    - jsonPath: .spec.restartThreshold
+      name: Threshold
+      type: integer
+    - jsonPath: .status.alertCount
+      name: Alerts
+      type: integer
+    - jsonPath: .status.active
+      name: Active
+      type: boolean
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: PodWatcher é o Schema do recurso podwatchers
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              PodWatcherSpec define o estado DESEJADO do PodWatcher.
+              É o que o usuário preenche no YAML.
+              Equivale ao que você tinha no ~/.ck.yaml, mas agora
+              é um recurso K8s de verdade.
+            properties:
+              email:
+                description: Configuração de email
+                properties:
+                  connectionString:
+                    type: string
+                  from:
+                    type: string
+                  to:
+                    type: string
+                required:
+                - connectionString
+                - from
+                - to
+                type: object
+              restartThreshold:
+                default: 3
+                description: |-
+                  Número de restarts pra disparar alerta
+                  No ck watch era: viper.GetInt32("watch.restart_threshold")
+                format: int32
+                type: integer
+              targetNamespace:
+                description: |-
+                  Namespace que o Operator vai monitorar
+                  No ck watch era: viper.GetString("namespace")
+                  Agora é um campo do CRD.
+                type: string
+            required:
+            - email
+            - targetNamespace
+            type: object
+          status:
+            description: |-
+              PodWatcherStatus define o estado ATUAL (observado) do PodWatcher.
+              O Operator preenche isso automaticamente.
+              É onde o Operator reporta o que está acontecendo.
+            properties:
+              active:
+                description: Está monitorando?
+                type: boolean
+              alertCount:
+                description: Total de alertas enviados
+                format: int32
+                type: integer
+              lastAlertTime:
+                description: Último alerta enviado
+                format: date-time
+                type: string
+              message:
+                description: Mensagem de status
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
